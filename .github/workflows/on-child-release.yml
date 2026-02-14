@@ -1,0 +1,155 @@
+name: Mirror Release
+
+on:
+  repository_dispatch:
+    types: [child-release-created]
+
+permissions:
+  contents: write
+
+jobs:
+  mirror-release:
+    name: Mirror Release Assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract release info
+        id: info
+        run: |
+          TAG="${{ github.event.client_payload.tag }}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download assets from private release
+        env:
+          GH_TOKEN: ${{ secrets.CORE_REPO_PAT }}
+        run: |
+          mkdir -p release
+          gh release download "${{ steps.info.outputs.tag }}" \
+            --repo harmony-labs/gitkb-core \
+            --pattern "*.tar.gz" \
+            --pattern "*.sha256" \
+            --pattern "checksums.txt" \
+            --dir release
+
+      - name: Create public release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.info.outputs.tag }}
+          name: ${{ steps.info.outputs.tag }}
+          body: |
+            GitKB ${{ steps.info.outputs.tag }}
+
+            Install via:
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/harmony-labs/gitkb-releases/main/install.sh | bash
+            ```
+
+            Or via Homebrew:
+            ```bash
+            brew install harmony-labs/tap/gitkb
+            ```
+          files: release/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: mirror-release
+    runs-on: ubuntu-latest
+    # Only update on non-prerelease tags
+    if: ${{ !contains(github.event.client_payload.tag, '-') }}
+    steps:
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${{ github.event.client_payload.tag }}"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download checksum files
+        env:
+          GH_TOKEN: ${{ secrets.CORE_REPO_PAT }}
+        run: |
+          mkdir -p checksums
+          gh release download "${{ github.event.client_payload.tag }}" \
+            --repo harmony-labs/gitkb-core \
+            --pattern "*.sha256" \
+            --dir checksums
+
+      - name: Calculate checksums
+        id: checksums
+        run: |
+          DARWIN_ARM64=$(awk '{print $1}' checksums/gitkb-darwin-arm64.tar.gz.sha256)
+          DARWIN_X64=$(awk '{print $1}' checksums/gitkb-darwin-x64.tar.gz.sha256)
+          LINUX_ARM64=$(awk '{print $1}' checksums/gitkb-linux-arm64.tar.gz.sha256)
+          LINUX_X64=$(awk '{print $1}' checksums/gitkb-linux-x64.tar.gz.sha256)
+
+          {
+            echo "darwin_arm64=$DARWIN_ARM64"
+            echo "darwin_x64=$DARWIN_X64"
+            echo "linux_arm64=$LINUX_ARM64"
+            echo "linux_x64=$LINUX_X64"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate Homebrew formula
+        run: |
+          cat > gitkb.rb << 'FORMULA'
+          # typed: false
+          # frozen_string_literal: true
+
+          class Gitkb < Formula
+            desc "Git-native knowledge base with AI-powered code intelligence"
+            homepage "https://github.com/harmony-labs/gitkb-releases"
+            version "${{ steps.version.outputs.version }}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/harmony-labs/gitkb-releases/releases/download/v#{version}/gitkb-darwin-arm64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.darwin_arm64 }}"
+              end
+              on_intel do
+                url "https://github.com/harmony-labs/gitkb-releases/releases/download/v#{version}/gitkb-darwin-x64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.darwin_x64 }}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/harmony-labs/gitkb-releases/releases/download/v#{version}/gitkb-linux-arm64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.linux_arm64 }}"
+              end
+              on_intel do
+                url "https://github.com/harmony-labs/gitkb-releases/releases/download/v#{version}/gitkb-linux-x64.tar.gz"
+                sha256 "${{ steps.checksums.outputs.linux_x64 }}"
+              end
+            end
+
+            def install
+              bin.install "git-kb"
+            end
+
+            test do
+              system "#{bin}/git-kb", "--version"
+            end
+          end
+          FORMULA
+
+      - name: Push to Homebrew tap
+        env:
+          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/harmony-labs/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp gitkb.rb tap/Formula/
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/gitkb.rb
+          if ! git diff --cached --quiet; then
+            git commit -m "Update gitkb to v${{ steps.version.outputs.version }}"
+            git push
+          else
+            echo "Formula unchanged, skipping commit"
+          fi
