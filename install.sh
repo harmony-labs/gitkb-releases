@@ -7,6 +7,7 @@ set -e
 REPO="harmony-labs/gitkb-releases"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${VERSION:-latest}"
+SKIP_CHECKSUM="${SKIP_CHECKSUM:-0}"  # Set to 1 to bypass checksum verification
 
 # Colors for output
 RED='\033[0;31m'
@@ -89,8 +90,9 @@ install_gitkb() {
         error "Failed to download git-kb (check that version '${version}' exists)"
     fi
 
-    info "Downloading checksum..."
-    if curl -fsSL "$checksum_url" -o "${tmp_dir}/gitkb.tar.gz.sha256" 2>/dev/null; then
+    if [ "$SKIP_CHECKSUM" = "1" ]; then
+        warn "Skipping checksum verification (SKIP_CHECKSUM=1)"
+    elif curl -fsSL "$checksum_url" -o "${tmp_dir}/gitkb.tar.gz.sha256" 2>/dev/null; then
         info "Verifying checksum..."
         local expected
         expected=$(awk '{print $1}' "${tmp_dir}/gitkb.tar.gz.sha256")
@@ -108,7 +110,7 @@ install_gitkb() {
         fi
         info "Checksum verified."
     else
-        warn "Could not download checksum file, skipping verification"
+        error "Could not download checksum file. Set SKIP_CHECKSUM=1 to bypass verification."
     fi
 
     info "Extracting..."
