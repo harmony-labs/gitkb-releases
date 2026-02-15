@@ -138,9 +138,12 @@ jobs:
 
       - name: Push to Homebrew tap
         env:
-          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/harmony-labs/homebrew-tap.git" tap
+          VERSION="${{ steps.version.outputs.version }}"
+          BRANCH="update-gitkb-${VERSION}"
+
+          gh repo clone harmony-labs/homebrew-tap tap
           mkdir -p tap/Formula
           cp gitkb.rb tap/Formula/
           cd tap
@@ -148,8 +151,16 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/gitkb.rb
           if ! git diff --cached --quiet; then
-            git commit -m "Update gitkb to v${{ steps.version.outputs.version }}"
-            git push
+            git checkout -b "$BRANCH"
+            git commit -m "Update gitkb to v${VERSION}"
+            git push -u origin "$BRANCH"
+            gh pr create \
+              --title "Update gitkb to v${VERSION}" \
+              --body "Automated formula update from gitkb-core release v${VERSION}." \
+              --repo harmony-labs/homebrew-tap
+            gh pr merge "$BRANCH" \
+              --auto --squash \
+              --repo harmony-labs/homebrew-tap
           else
             echo "Formula unchanged, skipping commit"
           fi
