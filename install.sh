@@ -1,19 +1,28 @@
 #!/bin/bash
-set -e
+set -eu
 
 # GitKB Installation Script
-# Downloads and installs git-kb from GitHub releases
+# Usage: curl -fsSL https://get.gitkb.com/install.sh | bash
+#   or:  VERSION=0.1.5 curl -fsSL ... | bash
+#   or:  INSTALL_DIR=/usr/local/bin curl -fsSL ... | bash
 
 REPO="harmony-labs/gitkb-releases"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${VERSION:-latest}"
 SKIP_CHECKSUM="${SKIP_CHECKSUM:-0}"  # Set to 1 to bypass checksum verification
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+# Colors (disabled when stdout is not a terminal)
+if [ -t 1 ]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    NC='\033[0m'
+else
+    RED=''
+    GREEN=''
+    YELLOW=''
+    NC=''
+fi
 
 info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -50,8 +59,24 @@ detect_platform() {
     echo "${os}-${arch}"
 }
 
-# Get latest version from GitHub
+# Get latest version from GitHub.
+# Tries the redirect-based approach first (no API quota), falls back to REST API.
 get_latest_version() {
+    # Method 1: Follow the /releases/latest redirect — free, no API rate limit
+    local redirect_url
+    redirect_url=$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest" 2>/dev/null) || true
+    if [ -n "$redirect_url" ]; then
+        # URL looks like https://github.com/…/releases/tag/v0.1.5
+        local tag
+        tag="${redirect_url##*/}"
+        tag="${tag#v}"
+        if [ -n "$tag" ]; then
+            echo "$tag"
+            return
+        fi
+    fi
+
+    # Method 2: GitHub REST API (subject to 60 req/hr unauthenticated rate limit)
     local response
     response=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest") || {
         error "Failed to fetch latest release info from GitHub"
@@ -68,6 +93,14 @@ install_gitkb() {
     local platform
     platform=$(detect_platform)
     local version="$VERSION"
+    version="${version#v}"  # Strip leading v if user passed VERSION=v0.1.5
+
+    # Detect existing installation
+    if command -v git-kb >/dev/null 2>&1; then
+        local current
+        current=$(git-kb --version 2>/dev/null || echo "unknown")
+        info "Existing installation detected: $current"
+    fi
 
     if [ "$version" = "latest" ]; then
         info "Fetching latest version..."
@@ -129,22 +162,34 @@ install_gitkb() {
         error "Binary git-kb not found in archive"
     fi
 
-    # Check if INSTALL_DIR is in PATH
-    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-        warn "$INSTALL_DIR is not in your PATH"
-        echo ""
-        echo "Add it to your shell configuration:"
-        echo ""
-        echo "  # For bash (~/.bashrc or ~/.bash_profile):"
-        echo "  export PATH=\"\$PATH:$INSTALL_DIR\""
-        echo ""
-        echo "  # For zsh (~/.zshrc):"
-        echo "  export PATH=\"\$PATH:$INSTALL_DIR\""
-        echo ""
-        echo "  # For fish (~/.config/fish/config.fish):"
-        echo "  fish_add_path $INSTALL_DIR"
-        echo ""
+    # Verify the binary runs
+    local installed_version
+    installed_version=$("$INSTALL_DIR/git-kb" --version 2>/dev/null) || true
+    if [ -n "$installed_version" ]; then
+        info "Verified: $installed_version"
+    else
+        warn "Binary installed but failed to run — check your system for missing libraries"
     fi
+
+    # Check if INSTALL_DIR is in PATH (POSIX-compatible)
+    case ":$PATH:" in
+        *":$INSTALL_DIR:"*) ;;
+        *)
+            warn "$INSTALL_DIR is not in your PATH"
+            echo ""
+            echo "Add it to your shell configuration:"
+            echo ""
+            echo "  # For bash (~/.bashrc or ~/.bash_profile):"
+            echo "  export PATH=\"\$PATH:$INSTALL_DIR\""
+            echo ""
+            echo "  # For zsh (~/.zshrc):"
+            echo "  export PATH=\"\$PATH:$INSTALL_DIR\""
+            echo ""
+            echo "  # For fish (~/.config/fish/config.fish):"
+            echo "  fish_add_path $INSTALL_DIR"
+            echo ""
+            ;;
+    esac
 
     info "Installation complete!"
     echo ""
