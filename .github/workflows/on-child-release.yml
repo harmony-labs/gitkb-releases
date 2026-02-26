@@ -11,6 +11,9 @@ jobs:
   mirror-release:
     name: Mirror Release Assets
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.info.outputs.tag }}
+      version: ${{ steps.info.outputs.version }}
     steps:
       - name: Extract release info
         id: info
@@ -58,23 +61,25 @@ jobs:
     name: Notify Discord
     needs: mirror-release
     runs-on: ubuntu-latest
-    if: ${{ secrets.DISCORD_RELEASES_WEBHOOK_URL != '' }}
     continue-on-error: true
     steps:
-      - name: Extract release info
-        id: info
+      - name: Check webhook configured
+        id: check
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_RELEASES_WEBHOOK_URL }}
         run: |
-          TAG="${{ github.event.client_payload.tag }}"
-          VERSION="${TAG#v}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Discord webhook not configured, skipping notification"
+          fi
 
       - name: Fetch release notes from core repo
+        if: steps.check.outputs.skip != 'true'
         id: notes
         env:
           GH_TOKEN: ${{ secrets.CORE_REPO_PAT }}
         run: |
-          TAG="${{ steps.info.outputs.tag }}"
+          TAG="${{ needs.mirror-release.outputs.tag }}"
 
           # Fetch release body from the private core repo
           BODY=$(gh release view "$TAG" \
@@ -87,20 +92,20 @@ jobs:
 
           # Discord embed description limit is 4096 chars
           if [ ${#BODY} -gt 3800 ]; then
-            BODY="${BODY:0:3800}
-
-… [truncated — see full notes on GitHub](https://github.com/harmony-labs/gitkb-releases/releases/tag/$TAG)"
+            TRUNCATE_MSG=$'\n\n… [truncated — see full notes on GitHub](https://github.com/harmony-labs/gitkb-releases/releases/tag/'"$TAG"')'
+            BODY="${BODY:0:3800}${TRUNCATE_MSG}"
           fi
 
           # Write to file to preserve newlines
           echo "$BODY" > /tmp/release_notes.txt
 
       - name: Post to Discord
+        if: steps.check.outputs.skip != 'true'
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_RELEASES_WEBHOOK_URL }}
         run: |
-          TAG="${{ steps.info.outputs.tag }}"
-          VERSION="${{ steps.info.outputs.version }}"
+          TAG="${{ needs.mirror-release.outputs.tag }}"
+          VERSION="${{ needs.mirror-release.outputs.version }}"
           NOTES=$(cat /tmp/release_notes.txt)
 
           # Build JSON payload with jq to handle escaping
