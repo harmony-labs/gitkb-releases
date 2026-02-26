@@ -30,22 +30,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - distro: debian:bookworm-slim
+          - distro: debian:trixie-slim
             runner: ubuntu-latest
             name: debian-x64
-          - distro: ubuntu:22.04
+          - distro: ubuntu:24.04
             runner: ubuntu-latest
             name: ubuntu-x64
-          - distro: debian:bookworm-slim
+          - distro: debian:trixie-slim
             runner: ubuntu-24.04-arm
             name: debian-arm64
-          - distro: ubuntu:22.04
+          - distro: ubuntu:24.04
             runner: ubuntu-24.04-arm
             name: ubuntu-arm64
     runs-on: ${{ matrix.runner }}
     name: linux / ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Pull Docker image (cached by runner)
+        run: docker pull ${{ matrix.distro }}
 
       - name: Run install.sh in Docker
         env:
@@ -60,19 +63,28 @@ jobs:
             bash -c '
               set -euo pipefail
 
+              # --- Dependencies ------------------------------------------------
+              apt-get update -qq && apt-get install -y -qq curl ca-certificates libdbus-1-3 >/dev/null
+
               # --- Private-repo auth (no-op once public) ----------------------
-              apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null
               if [ -n "${GITHUB_TOKEN:-}" ]; then
                 echo "machine github.com login x-access-token password ${GITHUB_TOKEN}" > ~/.netrc
                 chmod 600 ~/.netrc
               fi
 
               # --- Run installer -----------------------------------------------
-              bash /install.sh
+              bash /install.sh 2>/tmp/install_stderr.log
 
               # --- Assertions ---------------------------------------------------
               test -f "$HOME/.local/bin/git-kb" || { echo "FAIL: binary not found"; exit 1; }
               "$HOME/.local/bin/git-kb" --version     # proves correct arch + no missing libs
+
+              # No unbound variable errors or other stderr noise
+              if [ -s /tmp/install_stderr.log ]; then
+                echo "FAIL: install.sh produced unexpected stderr output:"
+                cat /tmp/install_stderr.log
+                exit 1
+              fi
             '
 
   # ---------------------------------------------------------------------------
@@ -107,12 +119,19 @@ jobs:
       - name: Run install.sh
         env:
           VERSION: ${{ github.event.inputs.version || 'latest' }}
-        run: bash install.sh
+        run: bash install.sh 2>/tmp/install_stderr.log
 
       - name: Verify installation
         run: |
           test -f "$HOME/.local/bin/git-kb" || { echo "FAIL: binary not found"; exit 1; }
           "$HOME/.local/bin/git-kb" --version
+
+          # No unbound variable errors or other stderr noise
+          if [ -s /tmp/install_stderr.log ]; then
+            echo "FAIL: install.sh produced unexpected stderr output:"
+            cat /tmp/install_stderr.log
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------------
   # Summary — single required check for branch protection
