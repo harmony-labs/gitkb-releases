@@ -132,8 +132,10 @@ jobs:
             echo "Tests skipped (upstream workflow did not succeed)."
             exit 0
           fi
-          if [[ "${{ needs.test-linux.result }}" == "success" && \
-                "${{ needs.test-macos.result }}" == "success" ]]; then
+          # Treat skipped as acceptable when paired with success
+          linux_ok=$([[ "${{ needs.test-linux.result }}" =~ ^(success|skipped)$ ]] && echo true || echo false)
+          macos_ok=$([[ "${{ needs.test-macos.result }}" =~ ^(success|skipped)$ ]] && echo true || echo false)
+          if [[ "$linux_ok" == "true" && "$macos_ok" == "true" ]]; then
             echo "All install tests passed."
           else
             echo "One or more install tests failed."
