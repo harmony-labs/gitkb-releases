@@ -1,6 +1,6 @@
 # GitKB
 
-Git-native knowledge base with AI-powered code intelligence.
+GitKB is a git-like distributed knowledge graph protocol with sparse sync and checkout semantics, enabling agents and their humans to work on all the world's knowledge — a few documents at a time.
 
 GitKB gives AI coding agents persistent memory that survives session restarts — structured documents, a knowledge graph, and deep code understanding across 23+ languages. It works with Claude Code, Cursor, and any MCP-compatible editor.
 
@@ -84,15 +84,16 @@ git kb mcp            # Start MCP server for editor integration
 
 ## How It Works
 
-GitKB stores documents as markdown files with YAML frontmatter in a `.kb/` directory inside your git repo. A local SQLite index provides fast queries, full-text search, and graph traversal — but the files on disk are always the source of truth. If the database is ever lost, `git kb reindex` rebuilds it from files.
+GitKB is a distributed protocol — like git for knowledge. Every project gets a `.kb/` directory containing markdown documents with YAML frontmatter. These files are the source of truth: version them with git, read them with any editor, take them with you if you leave. A local index provides fast queries, full-text search, and graph traversal. If the index is ever lost, `git kb reindex` rebuilds it from files.
 
-Documents are connected through a knowledge graph: tasks implement specs, incidents reference fixes, code symbols link to documentation. Wikilinks (`[[slug]]`) in your markdown automatically create graph edges.
+**Sparse sync** means agents and humans pull only the documents they need. A team of agents working across a 10,000-document knowledge base each maintains a lightweight working set — no full clone required. **Sparse checkout** means the workspace is an ephemeral editing surface: check out what you're working on, commit when done, clear when finished.
 
-For AI agents, GitKB provides an MCP server with 36 tools — document CRUD, graph queries, code intelligence, semantic search — giving agents structured, persistent context that survives session restarts.
+Documents connect through a knowledge graph. Tasks implement specs. Incidents reference fixes. Code symbols link to documentation. Wikilinks (`[[slug]]`) in your markdown automatically create graph edges, making the entire knowledge base traversable and queryable.
+
+For AI agents, GitKB exposes an MCP server with 36+ tools — document CRUD, graph traversal, code intelligence (call graphs, impact analysis, dead code detection across 23+ languages), and semantic search. Agents get structured, persistent context that survives session restarts — not just a pile of text files.
 
 ## Links
 
-- **Protocol spec:** [gitkb.org](https://gitkb.org) — open protocol specification
 - **Product & docs:** [gitkb.com](https://gitkb.com) — documentation, guides, and cloud platform
 - **Community:** [discord.gitkb.com](https://discord.gitkb.com)
 
@@ -100,12 +101,10 @@ For AI agents, GitKB provides an MCP server with 36 tools — document CRUD, gra
 
 The GitKB CLI binary is distributed under the [Business Source License 1.1](LICENSE). This means:
 
-- **You can use it** for any purpose, including commercial projects
+- **You can use it** for any purpose, including commercial projects (via the Additional Use Grant)
 - **You can read and audit** the source code
-- **You can submit patches** and bugfixes
+- **You can submit patches** and bug fixes
 - **You cannot** use the source to build a competing managed service
-- **After 3 years**, each version converts to MIT — fully open source
+- **After 4 years**, each version automatically converts to an open-source license
 
-The [GitKB protocol specification](https://gitkb.org) is open. The `gitkb-types` and `gitkb-parser` crates are MIT-licensed on [crates.io](https://crates.io) for building extensions and packs. All built-in language packs are MIT.
-
-Built by [Harmony Labs](https://harmony-labs.ai).
+Built by [GitKB, Inc.](https://gitkb.com)
