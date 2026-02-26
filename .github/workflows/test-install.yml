@@ -68,11 +68,18 @@ jobs:
               fi
 
               # --- Run installer -----------------------------------------------
-              bash /install.sh
+              bash /install.sh 2>/tmp/install_stderr.log
 
               # --- Assertions ---------------------------------------------------
               test -f "$HOME/.local/bin/git-kb" || { echo "FAIL: binary not found"; exit 1; }
               "$HOME/.local/bin/git-kb" --version     # proves correct arch + no missing libs
+
+              # No unbound variable errors or other stderr noise
+              if [ -s /tmp/install_stderr.log ]; then
+                echo "FAIL: install.sh produced unexpected stderr output:"
+                cat /tmp/install_stderr.log
+                exit 1
+              fi
             '
 
   # ---------------------------------------------------------------------------
@@ -107,12 +114,19 @@ jobs:
       - name: Run install.sh
         env:
           VERSION: ${{ github.event.inputs.version || 'latest' }}
-        run: bash install.sh
+        run: bash install.sh 2>/tmp/install_stderr.log
 
       - name: Verify installation
         run: |
           test -f "$HOME/.local/bin/git-kb" || { echo "FAIL: binary not found"; exit 1; }
           "$HOME/.local/bin/git-kb" --version
+
+          # No unbound variable errors or other stderr noise
+          if [ -s /tmp/install_stderr.log ]; then
+            echo "FAIL: install.sh produced unexpected stderr output:"
+            cat /tmp/install_stderr.log
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------------
   # Summary — single required check for branch protection
