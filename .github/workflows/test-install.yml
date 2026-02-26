@@ -1,0 +1,136 @@
+name: Test Install Script
+
+on:
+  # Auto-trigger after every new release
+  workflow_run:
+    workflows: ["Mirror Release"]
+    types: [completed]
+
+  # Test PRs that touch the installer
+  pull_request:
+    paths: [install.sh]
+
+  # Manual trigger with optional version override
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to install (e.g. 0.3.1). Blank = latest."
+        required: false
+        default: ""
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Linux — Docker containers give a clean, minimal environment
+  # ---------------------------------------------------------------------------
+  test-linux:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: debian:bookworm-slim
+            runner: ubuntu-latest
+            name: debian-x64
+          - distro: ubuntu:22.04
+            runner: ubuntu-latest
+            name: ubuntu-x64
+          - distro: debian:bookworm-slim
+            runner: ubuntu-24.04-arm
+            name: debian-arm64
+          - distro: ubuntu:22.04
+            runner: ubuntu-24.04-arm
+            name: ubuntu-arm64
+    runs-on: ${{ matrix.runner }}
+    name: linux / ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run install.sh in Docker
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          docker run --rm \
+            -e GITHUB_TOKEN \
+            -e VERSION="${INPUT_VERSION:-latest}" \
+            -v "${{ github.workspace }}/install.sh:/install.sh:ro" \
+            ${{ matrix.distro }} \
+            bash -c '
+              set -euo pipefail
+
+              # --- Private-repo auth (no-op once public) ----------------------
+              apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null
+              if [ -n "${GITHUB_TOKEN:-}" ]; then
+                echo "machine github.com login x-access-token password ${GITHUB_TOKEN}" > ~/.netrc
+                chmod 600 ~/.netrc
+              fi
+
+              # --- Run installer -----------------------------------------------
+              bash /install.sh
+
+              # --- Assertions ---------------------------------------------------
+              test -f "$HOME/.local/bin/git-kb" || { echo "FAIL: binary not found"; exit 1; }
+              "$HOME/.local/bin/git-kb" --version     # proves correct arch + no missing libs
+            '
+
+  # ---------------------------------------------------------------------------
+  # macOS — native runners (can't use Docker on macOS)
+  # ---------------------------------------------------------------------------
+  test-macos:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            name: macos-arm64
+          - runner: macos-13
+            name: macos-x64
+    runs-on: ${{ matrix.runner }}
+    name: macos / ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Private-repo auth (no-op once public)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${GITHUB_TOKEN:-}" ]; then
+            echo "machine github.com login x-access-token password ${GITHUB_TOKEN}" > ~/.netrc
+            chmod 600 ~/.netrc
+          fi
+
+      - name: Run install.sh
+        env:
+          VERSION: ${{ github.event.inputs.version || 'latest' }}
+        run: bash install.sh
+
+      - name: Verify installation
+        run: |
+          test -f "$HOME/.local/bin/git-kb" || { echo "FAIL: binary not found"; exit 1; }
+          "$HOME/.local/bin/git-kb" --version
+
+  # ---------------------------------------------------------------------------
+  # Summary — single required check for branch protection
+  # ---------------------------------------------------------------------------
+  results:
+    if: always()
+    needs: [test-linux, test-macos]
+    runs-on: ubuntu-latest
+    name: results
+    steps:
+      - name: Aggregate results
+        run: |
+          echo "linux:  ${{ needs.test-linux.result }}"
+          echo "macos:  ${{ needs.test-macos.result }}"
+          if [[ "${{ needs.test-linux.result }}" == "success" && \
+                "${{ needs.test-macos.result }}" == "success" ]]; then
+            echo "All install tests passed."
+          else
+            echo "One or more install tests failed."
+            exit 1
+          fi
