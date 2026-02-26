@@ -73,45 +73,17 @@ jobs:
             echo "::notice::Discord webhook not configured, skipping notification"
           fi
 
-      - name: Fetch release notes from core repo
-        if: steps.check.outputs.skip != 'true'
-        id: notes
-        env:
-          GH_TOKEN: ${{ secrets.CORE_REPO_PAT }}
-        run: |
-          TAG="${{ needs.mirror-release.outputs.tag }}"
-
-          # Fetch release body from the private core repo
-          BODY=$(gh release view "$TAG" \
-            --repo harmony-labs/gitkb-core \
-            --json body --jq '.body' 2>/dev/null || echo "")
-
-          if [ -z "$BODY" ]; then
-            BODY="Release $TAG is now available."
-          fi
-
-          # Discord embed description limit is 4096 chars
-          if [ ${#BODY} -gt 3800 ]; then
-            TRUNCATE_MSG=$'\n\n… [truncated — see full notes on GitHub](https://github.com/harmony-labs/gitkb-releases/releases/tag/'"$TAG"')'
-            BODY="${BODY:0:3800}${TRUNCATE_MSG}"
-          fi
-
-          # Write to file to preserve newlines
-          echo "$BODY" > /tmp/release_notes.txt
-
       - name: Post to Discord
         if: steps.check.outputs.skip != 'true'
         env:
           WEBHOOK_URL: ${{ secrets.DISCORD_RELEASES_WEBHOOK_URL }}
         run: |
           TAG="${{ needs.mirror-release.outputs.tag }}"
-          VERSION="${{ needs.mirror-release.outputs.version }}"
-          NOTES=$(cat /tmp/release_notes.txt)
 
           # Build JSON payload with jq to handle escaping
           PAYLOAD=$(jq -n \
             --arg title "GitKB $TAG Released" \
-            --arg notes "$NOTES" \
+            --arg desc "A new version of GitKB is available." \
             --arg install_sh 'curl -fsSL https://raw.githubusercontent.com/harmony-labs/gitkb-releases/main/install.sh | sh' \
             --arg install_brew 'brew install harmony-labs/tap/gitkb' \
             --arg url "https://github.com/harmony-labs/gitkb-releases/releases/tag/$TAG" \
@@ -119,7 +91,7 @@ jobs:
               embeds: [{
                 title: $title,
                 url: $url,
-                description: $notes,
+                description: $desc,
                 color: 3066993,
                 fields: [
                   {
