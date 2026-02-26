@@ -25,15 +25,15 @@ else
 fi
 
 info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+    printf '%b\n' "${GREEN}[INFO]${NC} $1"
 }
 
 warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
+    printf '%b\n' "${YELLOW}[WARN]${NC} $1"
 }
 
 error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    printf '%b\n' "${RED}[ERROR]${NC} $1"
     exit 1
 }
 
@@ -81,7 +81,7 @@ get_latest_version() {
     response=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest") || {
         error "Failed to fetch latest release info from GitHub"
     }
-    if command -v jq &> /dev/null; then
+    if command -v jq >/dev/null 2>&1; then
         echo "$response" | jq -r '.tag_name // empty' | sed 's/^v//'
     else
         echo "$response" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//'
@@ -130,9 +130,9 @@ install_gitkb() {
         local expected
         expected=$(awk '{print $1}' "${tmp_dir}/gitkb.tar.gz.sha256")
         local actual
-        if command -v sha256sum &> /dev/null; then
+        if command -v sha256sum >/dev/null 2>&1; then
             actual=$(sha256sum "${tmp_dir}/gitkb.tar.gz" | awk '{print $1}')
-        elif command -v shasum &> /dev/null; then
+        elif command -v shasum >/dev/null 2>&1; then
             actual=$(shasum -a 256 "${tmp_dir}/gitkb.tar.gz" | awk '{print $1}')
         else
             error "Cannot verify checksum: neither sha256sum nor shasum found. Install one and retry."
@@ -203,12 +203,12 @@ main() {
     echo ""
 
     # Check for curl
-    if ! command -v curl &> /dev/null; then
+    if ! command -v curl >/dev/null 2>&1; then
         error "curl is required but not installed"
     fi
 
     # Check for tar
-    if ! command -v tar &> /dev/null; then
+    if ! command -v tar >/dev/null 2>&1; then
         error "tar is required but not installed"
     fi
 
