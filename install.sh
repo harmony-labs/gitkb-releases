@@ -114,7 +114,6 @@ install_gitkb() {
 
     local download_url="https://github.com/${REPO}/releases/download/v${version}/gitkb-${platform}.tar.gz"
     local checksum_url="https://github.com/${REPO}/releases/download/v${version}/gitkb-${platform}.tar.gz.sha256"
-    local tmp_dir
     tmp_dir=$(mktemp -d)
     trap 'rm -rf "$tmp_dir"' EXIT INT TERM
 
