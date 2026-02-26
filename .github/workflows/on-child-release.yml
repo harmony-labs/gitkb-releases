@@ -54,6 +54,95 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  notify-discord:
+    name: Notify Discord
+    needs: mirror-release
+    runs-on: ubuntu-latest
+    if: ${{ secrets.DISCORD_RELEASES_WEBHOOK_URL != '' }}
+    continue-on-error: true
+    steps:
+      - name: Extract release info
+        id: info
+        run: |
+          TAG="${{ github.event.client_payload.tag }}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch release notes from core repo
+        id: notes
+        env:
+          GH_TOKEN: ${{ secrets.CORE_REPO_PAT }}
+        run: |
+          TAG="${{ steps.info.outputs.tag }}"
+
+          # Fetch release body from the private core repo
+          BODY=$(gh release view "$TAG" \
+            --repo harmony-labs/gitkb-core \
+            --json body --jq '.body' 2>/dev/null || echo "")
+
+          if [ -z "$BODY" ]; then
+            BODY="Release $TAG is now available."
+          fi
+
+          # Discord embed description limit is 4096 chars
+          if [ ${#BODY} -gt 3800 ]; then
+            BODY="${BODY:0:3800}
+
+… [truncated — see full notes on GitHub](https://github.com/harmony-labs/gitkb-releases/releases/tag/$TAG)"
+          fi
+
+          # Write to file to preserve newlines
+          echo "$BODY" > /tmp/release_notes.txt
+
+      - name: Post to Discord
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_RELEASES_WEBHOOK_URL }}
+        run: |
+          TAG="${{ steps.info.outputs.tag }}"
+          VERSION="${{ steps.info.outputs.version }}"
+          NOTES=$(cat /tmp/release_notes.txt)
+
+          # Build JSON payload with jq to handle escaping
+          PAYLOAD=$(jq -n \
+            --arg title "GitKB $TAG Released" \
+            --arg notes "$NOTES" \
+            --arg install_sh 'curl -fsSL https://raw.githubusercontent.com/harmony-labs/gitkb-releases/main/install.sh | sh' \
+            --arg install_brew 'brew install harmony-labs/tap/gitkb' \
+            --arg url "https://github.com/harmony-labs/gitkb-releases/releases/tag/$TAG" \
+            '{
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $notes,
+                color: 3066993,
+                fields: [
+                  {
+                    name: "Install via Shell",
+                    value: ("```sh\n" + $install_sh + "\n```")
+                  },
+                  {
+                    name: "Install via Homebrew",
+                    value: ("```sh\n" + $install_brew + "\n```")
+                  }
+                ]
+              }]
+            }')
+
+          # Post to Discord webhook
+          HTTP_STATUS=$(curl -s -o /tmp/discord_response.txt -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "$WEBHOOK_URL")
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "Discord notification sent successfully (HTTP $HTTP_STATUS)"
+          else
+            echo "::warning::Discord notification failed (HTTP $HTTP_STATUS)"
+            cat /tmp/discord_response.txt
+            exit 1
+          fi
+
   update-homebrew:
     name: Update Homebrew Formula
     needs: mirror-release
