@@ -164,11 +164,10 @@ install_gitkb() {
 
     # Verify the binary runs
     local installed_version
-    installed_version=$("$INSTALL_DIR/git-kb" --version 2>/dev/null) || true
-    if [ -n "$installed_version" ]; then
+    if installed_version=$("$INSTALL_DIR/git-kb" --version 2>&1); then
         info "Verified: $installed_version"
     else
-        warn "Binary installed but failed to run — check your system for missing libraries"
+        error "Installed binary failed to run: ${installed_version}"
     fi
 
     # Check if INSTALL_DIR is in PATH (POSIX-compatible)
