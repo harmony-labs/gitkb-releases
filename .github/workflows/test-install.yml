@@ -30,18 +30,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - distro: debian:trixie-slim
+          # x64: oldest supported (glibc 2.35) + newest
+          - distro: ubuntu:22.04
             runner: ubuntu-latest
-            name: debian-x64
+            name: ubuntu-22.04-x64
+          - distro: debian:bookworm-slim
+            runner: ubuntu-latest
+            name: debian-bookworm-x64
           - distro: ubuntu:24.04
             runner: ubuntu-latest
-            name: ubuntu-x64
-          - distro: debian:trixie-slim
-            runner: ubuntu-24.04-arm
-            name: debian-arm64
+            name: ubuntu-24.04-x64
+          # arm64: binary requires glibc 2.39 (built on ubuntu-24.04-arm)
           - distro: ubuntu:24.04
             runner: ubuntu-24.04-arm
-            name: ubuntu-arm64
+            name: ubuntu-24.04-arm64
     runs-on: ${{ matrix.runner }}
     name: linux / ${{ matrix.name }}
     steps:
