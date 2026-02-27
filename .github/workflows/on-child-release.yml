@@ -209,6 +209,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           BRANCH="update-gitkb-${VERSION}"
 
+          gh auth setup-git
           gh repo clone harmony-labs/homebrew-tap tap
           mkdir -p tap/Formula
           cp gitkb.rb tap/Formula/
